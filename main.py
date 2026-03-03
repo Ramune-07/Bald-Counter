@@ -19,6 +19,10 @@ DEFAULT_HAGE_WORDS = r"ハゲ|はげ|禿|薄毛|毛根|むしり|ピカピカ|�
 hage_words = os.getenv('HAGE_WORDS', DEFAULT_HAGE_WORDS)
 RE_HAGE = re.compile(rf'({hage_words})')
 
+# ロール付与設定
+ROLE_ID = os.getenv('ROLE_ID')  # 付与するロールのID
+ROLE_THRESHOLD = int(os.getenv('ROLE_THRESHOLD', '10'))  # 閾値（デフォルト: 10回）
+
 class HageBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
@@ -59,7 +63,34 @@ async def on_message(message):
                      DO UPDATE SET count = count + 1''', 
                   (message.guild.id, message.author.id))
         conn.commit()
+
+        # カウントが閾値を超えたらロールを付与
+        if ROLE_ID:
+            c.execute('SELECT count FROM hage_counts WHERE guild_id = ? AND user_id = ?',
+                      (message.guild.id, message.author.id))
+            result = c.fetchone()
+            if result and result[0] >= ROLE_THRESHOLD:
+                try:
+                    role = message.guild.get_role(int(ROLE_ID))
+                    if role and role not in message.author.roles:
+                        await message.author.add_roles(role)
+                        await message.channel.send(
+                            f'🎉 {message.author.display_name} さんが **{ROLE_THRESHOLD}回** のハゲを達成！'
+                            f'「{role.name}」ロールを付与しました！👨‍🦲'
+                        )
+                except (discord.Forbidden, discord.HTTPException, ValueError):
+                    pass
+
         conn.close()
+
+        # ロール持ちユーザーには「お前禿げすぎ」と返信
+        if ROLE_ID:
+            try:
+                role = message.guild.get_role(int(ROLE_ID))
+                if role and role in message.author.roles:
+                    await message.reply('お前禿げすぎ')
+            except (ValueError, discord.Forbidden, discord.HTTPException):
+                pass
 
         # 禿検知のリアクション
         try:
